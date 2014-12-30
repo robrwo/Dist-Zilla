@@ -122,6 +122,132 @@ has use_our => (
   default => 0,
 );
 
+sub strip_tokens_leading_whitespace {
+    my ($self, $tokens) = @_;
+
+    shift @$tokens while @$tokens && $tokens->[0]->isa('PPI::Token::Whitespace');
+    }
+
+sub strip_tokens_for_module_version {
+    my ($self, $tokens) = @_;
+
+    $self->strip_tokens_leading_whitespace( $tokens );
+
+    my $version;
+    my $next = $tokens->[0];
+
+    # Fairly lax if it's a Number::Float or a Number::Version
+    if ($next && $next->isa('PPI::Token::Number')){
+        $version = $next->literal;
+
+        # Remove it from the tree
+        shift @$tokens;
+        }
+
+    return $version;
+    }
+
+sub parse_tokens_for_module_string {
+    my ($self, $tokens) = @_;
+
+    $self->strip_tokens_leading_whitespace( $tokens );
+
+    my $next = shift @$tokens;
+    return unless $next && $next->isa('PPI::Token::Word');
+
+    my $module_name = $next->literal;
+
+    $self->strip_tokens_for_module_version($tokens);
+
+    return $module_name;
+    }
+
+sub parse_tokens_for_class_attributes {
+    my ($self, $tokens) = @_;
+
+    $self->strip_tokens_leading_whitespace( $tokens );
+
+    while (my $next = $tokens->[0]){
+        if ($next->isa('PPI::Token::Word') && $next->literal =~ m#^with|extends$#){
+            shift @$tokens;
+
+            $self->parse_tokens_for_module_string( $tokens );
+            next;
+            }
+        last;
+        }
+    return;
+    }
+
+sub parse_tokens_for_class_statement {
+    my ($self, $tokens) = @_;
+
+    my $first = shift @$tokens;
+
+    return unless $first && $first->isa('PPI::Token::Word') && $first->literal eq 'class';
+
+    my $module = $self->parse_tokens_for_module_string( $tokens );
+
+    return unless $module;
+
+    # This is really just a token stripper. We care only about what comes after
+    $self->parse_tokens_for_class_attributes( $tokens );
+
+    $self->strip_tokens_leading_whitespace( $tokens );
+
+    my $block = shift @$tokens;
+    return unless $block && $block->isa('PPI::Structure::Block');
+
+    return $module => $block->child(0);
+    }
+
+sub parse_document_for_moops_classes {
+    my ($self, $document) = @_;
+
+    return () unless $document->find(sub {
+      $_[1]->isa('PPI::Statement::Include') &&
+      $_[1]->module('Moops');
+      });
+
+    my %classes;
+
+    $document->find(sub {
+      return unless $_[1]->isa('PPI::Statement');
+
+      my ($module, $block) = $self->parse_tokens_for_class_statement( [ $_[1]->children ] );
+
+      if ($module){
+        $classes{$module} = $block;
+        }
+
+      # We're using this like a wanted, so no need to care about catching anything
+      return 0;
+      });
+
+    return %classes;
+    }
+
+sub parse_document_package_statements {
+    my ($self, $document) = @_;
+
+    my $packages = $document->find('PPI::Statement::Package');
+
+    return () unless $packages;
+
+    my %packages;
+    for my $statement (@$packages){
+        my $package = $statement->namespace;
+        if ($statement->content =~ /package\s*(?:#.*)?\n\s*\Q$package/) {
+          $self->log([ 'skipping private package %s in %s', $package, $document->filename ]);
+          next;
+        }
+
+      $packages{ $package } = $statement;
+      }
+
+    return %packages;
+    }
+
 sub munge_perl {
   my ($self, $file) = @_;
 
@@ -133,8 +259,12 @@ sub munge_perl {
 
   my $document = $self->ppi_document_for_file($file);
 
-  my $package_stmts = $document->find('PPI::Statement::Package');
-  unless ($package_stmts) {
+  my %package_statements = (
+    $self->parse_document_package_statements( $document ),
+    $self->parse_document_for_moops_classes( $document )
+    );
+
+  unless (%package_statements){
     $self->log_debug([ 'skipping %s: no package statement found', $file->name ]);
     return;
   }
@@ -151,15 +281,11 @@ sub munge_perl {
   my %seen_pkg;
 
   my $munged = 0;
-  for my $stmt (@$package_stmts) {
-    my $package = $stmt->namespace;
+  for my $package (keys %package_statements) {
+    my $stmt = $package_statements{ $package };
+
     if ($seen_pkg{ $package }++) {
       $self->log([ 'skipping package re-declaration for %s', $package ]);
-      next;
-    }
-
-    if ($stmt->content =~ /package\s*(?:#.*)?\n\s*\Q$package/) {
-      $self->log([ 'skipping private package %s in %s', $package, $file->name ]);
       next;
     }
 
@@ -190,7 +316,8 @@ sub munge_perl {
       while (1) {
         # avoid bogus locations due to insert_after
         $document->flush_locations if $munged;
-        my $curr_line_number = $curr->line_number + 1;
+
+        my $curr_line_number = $curr->line_number + ( $curr->can('lines') ? $curr->lines : 1 );
         my $find = $document->find(sub {
           my $line = $_[1]->line_number;
           return $line > $curr_line_number ? undef : $line == $curr_line_number;
@@ -198,7 +325,7 @@ sub munge_perl {
 
         last unless $find and @$find == 1;
 
-        if ($find->[0]->isa('PPI::Token::Comment')) {
+        if ($find->[0]->isa('PPI::Token::Comment') || $find->[0]->isa('PPI::Token::Pod') ) {
           $curr = $find->[0];
           next;
         }
