@@ -238,7 +238,7 @@ sub parse_document_package_statements {
     for my $statement (@$packages){
         my $package = $statement->namespace;
         if ($statement->content =~ /package\s*(?:#.*)?\n\s*\Q$package/) {
-          $self->log([ 'skipping private package %s in %s', $package, $document->filename ]);
+          $self->log([ 'skipping private package %s in %s', $package, $document->logical_filename ]);
           next;
         }
 
