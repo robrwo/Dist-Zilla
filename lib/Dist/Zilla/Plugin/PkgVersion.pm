@@ -184,7 +184,7 @@ sub parse_tokens_for_class_statement {
 
     my $first = shift @$tokens;
 
-    return unless $first && $first->isa('PPI::Token::Word') && $first->literal eq 'class';
+    return unless $first && $first->isa('PPI::Token::Word') && $first->literal =~ /^(?:class|role)$/;
 
     my $module = $self->parse_tokens_for_module_string( $tokens );
 
