@@ -135,6 +135,22 @@ my $pod_no_pkg = '
 =cut
 ';
 
+my $moops_class = '
+use Moops;
+
+class DZT::Moops {
+
+}
+';
+
+my $moops_role = '
+use Moops;
+
+role DZT::Moops::Role {
+
+}
+';
+
 my $tzil = Builder->from_config(
   { dist_root => 'corpus/dist/DZT' },
   {
@@ -151,13 +167,15 @@ my $tzil = Builder->from_config(
       'source/lib/DZT/WInPODStm.pm' => $in_pod_stm,
       'source/lib/DZT/R1.pm'     => $repeated_packages,
       'source/lib/DZT/Monkey.pm' => $monkey_patched,
+      'source/lib/DZT/Moops.pm'  => $moops_class,
+      'source/lib/DZT/Moops/Role.pm' => $moops_role,
       'source/lib/DZT/HideMe.pm' => $hide_me_comment,
       'source/lib/DZT/PodWithPackage.pm' => $pod_with_pkg,
       'source/lib/DZT/PodNoPackage.pm' => $pod_no_pkg,
       'source/bin/script_pkg.pl' => $script_pkg,
       'source/bin/script_ver.pl' => $script_pkg . "our \$VERSION = 1.234;\n",
       'source/bin/script.pl'     => $script,
-      'source/dist.ini' => simple_ini('GatherDir', 'PkgVersion', 'ExecDir'),
+      'source/dist.ini' => simple_ini('GatherDir', 'PkgVersion::Moops', 'ExecDir'),
     },
   },
 );
@@ -391,6 +409,20 @@ like(
   exception { $tzil3->build },
   qr/\[second\] existing assignment to \$VERSION in /,
   '$VERSION inserted by the first plugin is detected by the second',
+);
+
+my $dzt_moops = $tzil->slurp_file('build/lib/DZT/Moops.pm');
+like(
+  $dzt_moops,
+  qr{^\s*\$\QDZT::Moops::VERSION = '0.001';\E\s*$}m,
+  "added version to DZT::Moops",
+);
+
+my $dzt_moops_role = $tzil->slurp_file('build/lib/DZT/Moops/Role.pm');
+like(
+  $dzt_moops_role,
+  qr{^\s*\$\QDZT::Moops::Role::VERSION = '0.001';\E\s*$}m,
+  "added version to DZT::Moops",
 );
 
 done_testing;

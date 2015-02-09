@@ -10,8 +10,6 @@ with(
   'Dist::Zilla::Role::PPI',
 );
 
-use Class::Load qw(try_load_class);
-use MooseX::Types;
 use namespace::autoclean;
 
 =head1 SYNOPSIS
@@ -124,11 +122,26 @@ has use_our => (
   default => 0,
 );
 
-has syntax_layer => (
-  is  => 'ro',
-  isa => 'Str',
-  default => 'Moops',
-);
+sub package_declarations {
+  my ($self, $document) = @_;
+
+  my $packages = $document->find('PPI::Statement::Package');
+
+  return () unless $packages;
+
+  my %packages;
+  foreach my $statement (@{$packages}) {
+    my $package = $statement->namespace;
+    if ($statement->content =~ /package\s*(?:#.*)?\n\s*\Q$package/) {
+      $self->log([ 'skipping private package %s in %s', $package, $document->logical_filename ]);
+      next;
+    }
+
+    $packages{ $package } = $statement;
+  }
+
+  return %packages;
+}
 
 sub munge_perl {
   my ($self, $file) = @_;
@@ -140,14 +153,7 @@ sub munge_perl {
     unless version::is_lax($version);
 
   my $document = $self->ppi_document_for_file($file);
-
-  my $class = "Dist::Zilla::SyntaxLayer::" . $self->syntax_layer;
-  try_load_class($class)
-    or $self->log_fatal("Unable to load class ${class}");
-
-  my $parser = $class->new( document => $document, logger => $self->logger );
-
-  my %package_statements = $parser->package_statements;
+  my %package_statements = $self->package_declarations($document);
 
   unless (%package_statements){
     $self->log_debug([ 'skipping %s: no package statement found', $file->name ]);

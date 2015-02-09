@@ -1,16 +1,14 @@
-package Dist::Zilla::SyntaxLayer::Moops;
+package Dist::Zilla::Plugin::PkgVersion::Moops;
 
 use Moose;
-extends 'Dist::Zilla::SyntaxLayer::Core';
+extends 'Dist::Zilla::Plugin::PkgVersion';
 
 use namespace::autoclean;
 
-around package_statements => sub {
-    my ($next, $self) = @_;
+around package_declarations => sub {
+    my ($next, $self, $document) = @_;
 
-    my %packages = $self->$next;
-
-    my $document = $self->document;
+    my %packages = $self->$next($document);
 
     my $is_moops = $document->find(sub {
             $_[1]->isa('PPI::Statement::Include') &&
