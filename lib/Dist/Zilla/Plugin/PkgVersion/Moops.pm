@@ -35,29 +35,13 @@ around package_declarations => sub {
     return %packages;
 };
 
-
-sub parse_tokens_for_module_string {
-    my ($self, $tokens) = @_;
-
-    $self->strip_tokens_leading_whitespace( $tokens );
-
-    my $next = shift @$tokens;
-    return unless $next && $next->isa('PPI::Token::Word');
-
-    my $module_name = $next->literal;
-
-    $self->strip_tokens_for_module_version($tokens);
-
-    return $module_name;
-    }
-
 sub parse_tokens_for_class_attributes {
     my ($self, $tokens) = @_;
 
     $self->strip_tokens_leading_whitespace( $tokens );
 
     while (my $next = $tokens->[0]){
-        if ($next->isa('PPI::Token::Word') && $next->literal =~ m#^with|extends$#){
+        if ($next->isa('PPI::Token::Word') && $next->literal =~ m/^(?:with|extends)$/){
             shift @$tokens;
 
             $self->parse_tokens_for_module_string( $tokens );
@@ -73,7 +57,7 @@ sub parse_tokens_for_class_statement {
 
     my $first = shift @$tokens;
 
-    return unless $first && $first->isa('PPI::Token::Word') && $first->literal =~ /^(?:class|role)$/;
+    return unless $first && $first->isa('PPI::Token::Word') && $first->literal =~ m/^(?:class|role)$/;
 
     my $module = $self->parse_tokens_for_module_string( $tokens );
 
@@ -90,31 +74,6 @@ sub parse_tokens_for_class_statement {
     return $module => $block->child(0);
     }
 
-
-sub strip_tokens_leading_whitespace {
-    my ($self, $tokens) = @_;
-
-    shift @$tokens while @$tokens && $tokens->[0]->isa('PPI::Token::Whitespace');
-    }
-
-sub strip_tokens_for_module_version {
-    my ($self, $tokens) = @_;
-
-    $self->strip_tokens_leading_whitespace( $tokens );
-
-    my $version;
-    my $next = $tokens->[0];
-
-    # Fairly lax if it's a Number::Float or a Number::Version
-    if ($next && $next->isa('PPI::Token::Number')){
-        $version = $next->literal;
-
-        # Remove it from the tree
-        shift @$tokens;
-        }
-
-    return $version;
-    }
 
 
 1;
